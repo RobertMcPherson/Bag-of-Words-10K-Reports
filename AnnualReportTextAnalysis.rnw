@@ -1,0 +1,199 @@
+\documentclass[compress,8pt]{beamer}
+\usepackage[latin1]{inputenc}
+\usepackage{pgf,pgfarrows,pgfnodes,pgfautomata,pgfheaps,pgfshade}
+\usepackage{amsmath,amssymb}
+\usepackage[latin1]{inputenc}
+\usepackage{colortbl}
+\usepackage{graphicx}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\usepackage{verbatim}
+\usepackage{url} %needed for function to handle underscore characters
+\usepackage[section]{placeins}
+\usepackage{Sweave}
+\usepackage{upquote}
+\SweaveOpts{keep.source=TRUE}
+\urlstyle{sf} %style consistent with URL package - can also use rm style
+\usetheme{Singapore}%define the beamer theme
+\setbeamertemplate{navigation symbols}{}%remove navigation symbols
+\setbeamertemplate{section in head/foot shaded}[default][20]
+\setbeamertemplate{headline}{}%remove the navigation header
+%\setbeamertemplate{subsection in head/foot shaded}[default][20]
+%\logo{\includegraphics[width=0.15\textwidth]{nw_logo.jpg}} %change here. I used an eps file logo, you can use jpg or other format
+\AtBeginDocument{ 
+\DefineVerbatimEnvironment{Sinput}{Verbatim} {xleftmargin=2em,fontsize= 
+\footnotesize} 
+\DefineVerbatimEnvironment{Soutput}{Verbatim}{xleftmargin=2em,fontsize= 
+\footnotesize} 
+\DefineVerbatimEnvironment{Scode}{Verbatim}{xleftmargin=2em,fontsize= 
+\footnotesize} 
+} 
+
+\title{\bfseries{Text Mining for Themes in 2013 Competitor Annual Reports}}
+\author{Robert McPherson}
+\date{April 11, 2014}
+
+\AtBeginSection[]
+{
+  \begin{frame}
+    \begin{center}
+        \Large{\insertsection}
+    \end{center}
+  \end{frame}
+}
+
+\begin{document}
+
+\begin{frame}
+  \maketitle
+\end{frame}
+
+%\begin{frame}
+%\frametitle{Outline}
+%\tableofcontents
+%\end{frame}
+
+<<name="setup",echo=FALSE,quiet=TRUE,results=hide>>=
+#Remove any objects from the environment before starting
+rm(list=ls())
+
+##Install packages, if not already installed into R
+#install.packages("tm")
+#install.packages("stringr")
+#install.packages("data.table")
+#install.packages("outliers")
+#install.packages("car")
+#install.packages("xtable")
+#install.packages("RColorBrewer")
+#install.packages("wordcloud")
+
+#Load libraries
+library(tm)
+library(stringr)
+library(sqldf)
+library(data.table)
+library(outliers)
+library(car) #For Bonferoni outlier test
+library(xtable)
+library(RColorBrewer)
+library(wordcloud)
+@ 
+
+<<name="readData",echo=FALSE,quiet=TRUE,results=hide>>=
+#Set number of times word must appear to be included in the high frequency matrix
+n=10
+
+#Read server log - text file
+textData <- scan("allstate_corporation_2012_annual_report.txt", character(0), sep = "\n") # separate each line
+
+#Save as a word corpus
+data <- Corpus(VectorSource(textData[1:1000],))
+
+inspect(data[1:5]) #Inspect the first five entries in the data
+@ 
+
+<<name="functionStripWhiteSpace",echo=FALSE,quiet=TRUE,results=hide>>=
+#Function to strip white space from strings
+trim <- function (x) gsub("^\\s+|\\s+$", "", x)
+@
+
+<<name="transformations",echo=FALSE,quiet=TRUE,results=hide>>=  
+data2 = tm_map(data, stripWhitespace)
+data2 = tm_map(data2, tolower)
+stopWords = c(stopwords("english"),"uiftp","sshd")
+data2 = tm_map(data2, removeWords, stopWords)
+#data2 = tm_map(data2, stemDocument)
+data2 = tm_map(data2, removePunctuation)
+data2 = tm_map(data2, removeNumbers)
+inspect(data2[1:5])
+@ 
+\end{frame}
+
+<<name="documentTermMatrix",echo=FALSE,quiet=TRUE,results=hide>>=  
+#Make a word frequency matrix, with documents as rows, and terms as columns
+dtm = DocumentTermMatrix(data2)
+inspect(dtm[1:5,1:5])
+#inspect(dtm)
+#inspect(data2)
+freqMatrix <- data.frame(apply(dtm, 2, sum))
+terms <- row.names(freqMatrix)
+frequencies <- freqMatrix[,1]
+freqMatrix <- cbind(terms,frequencies)
+colnames(freqMatrix) <- c("Terms","Frequencies")
+tbl <- data.frame(freqMatrix)
+x <- sqldf("select * from tbl order by Frequencies desc")
+write.table(x, "AnnualRepWordFreqs.csv", sep=',', col.names=TRUE)
+@ 
+
+\begin{frame}
+  \frametitle{Most Frequent Words}
+See the exported CSV file from this analysis for a complete list.
+<<name="frequentWords",echo=FALSE,quiet=TRUE,results=tex>>=  
+xtable(x[1:20,])
+@ 
+\end{frame}
+
+\begin{frame}[containsverbatim]
+  \frametitle{Find Words Related to Analytical Themes}
+<<name="findWordsLike",echo=TRUE,quiet=TRUE,results=verbatim>>=  
+sqldf("select * from tbl where Terms in ('data')")
+sqldf("select * from tbl where Terms like '%analy%'")
+sqldf("select * from tbl where Terms like '%scien%'")
+sqldf("select * from tbl where Terms like '%model%'")
+sqldf("select * from tbl where Terms like '%predict%'")
+@ 
+\end{frame}
+
+\begin{frame}
+\frametitle{Find Associated Terms}    
+\begin{itemize}
+\item Can find terms in the text that are associated with a given term.
+\item Use the findAssocs function
+\item Can specify the minimum correlation.
+\end{itemize}  
+\end{frame}
+
+\begin{frame}
+\frametitle{Find Words Associated with the Term, ``data''}    
+<<name="findAssociatedTerms1",echo=FALSE,quiet=TRUE,results=tex>>=  
+xtable(findAssocs(dtm, "data", 0.2))
+@ 
+\end{frame}
+
+\begin{frame}
+\frametitle{Find Words Associated with the Term, ``analysis''}    
+<<name="findAssociatedTerms1",echo=FALSE,quiet=TRUE,results=tex>>=  
+xtable(findAssocs(dtm, "analysis", 0.2))
+@ 
+\end{frame}
+
+\begin{frame}
+\frametitle{Find Words Associated with the Term, ``brand''}    
+<<name="findAssociatedTerms1",echo=FALSE,quiet=TRUE,results=tex>>=  
+xtable(findAssocs(dtm, "brand", 0.3))
+@ 
+\end{frame}
+
+\begin{frame}
+\frametitle{Find Words Associated with the Term, ``customers''}    
+<<name="findAssociatedTerms2",echo=FALSE,quiet=TRUE,results=tex>>=  
+xtable(findAssocs(dtm, "customers", 0.20))
+@
+\end{frame}
+
+\begin{frame}
+\frametitle{Find Words Associated with the Term, ``innovative''}    
+<<name="findAssociatedTerms3",echo=FALSE,quiet=TRUE,results=tex>>=  
+xtable(findAssocs(dtm, "innovative", 0.3))
+@ 
+\end{frame}
+
+\begin{frame}
+\frametitle{Word Cloud}
+<<name="wordcloud",fig=TRUE,echo=FALSE,quiet=TRUE>>=  
+#wordcloud(x$Terms,x$Frequencies, scale=c(8,.3),min.freq=2,max.words=100, random.order=T, rot.per=.15, colors=pal, vfont=c("sans serif","plain"))
+wordcloud(x$Terms,as.numeric(x$Frequencies), scale=c(8,.3),min.freq=3,max.words=1000, random.order=T, rot.per=.15, vfont=c("sans serif","plain"))
+@ 
+\end{frame}
+
+\end{document}
